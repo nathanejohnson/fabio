@@ -1,9 +1,12 @@
 package config
 
 import (
+	"errors"
 	"net/http"
 	"regexp"
 	"time"
+
+	"github.com/hashicorp/consul/api"
 )
 
 type Config struct {
@@ -31,6 +34,9 @@ type CertSource struct {
 	Refresh         time.Duration
 	Header          http.Header
 	VaultFetchToken string
+	OCSPStapling    bool
+	OCSPCacheType   string
+	OCSPCachePath   string
 }
 
 type Listen struct {
@@ -155,6 +161,41 @@ type Consul struct {
 	ChecksRequired                      string
 	ServiceMonitors                     int
 	TLS                                 ConsulTlS
+}
+
+func (c *Consul) NewClient() (client *api.Client, dc string, err error) {
+	consulCfg := &api.Config{Address: c.Addr, Scheme: c.Scheme, Token: c.Token}
+	if c.Scheme == "https" {
+		consulCfg.TLSConfig.KeyFile = c.TLS.KeyFile
+		consulCfg.TLSConfig.CertFile = c.TLS.CertFile
+		consulCfg.TLSConfig.CAFile = c.TLS.CAFile
+		consulCfg.TLSConfig.CAPath = c.TLS.CAPath
+		consulCfg.TLSConfig.InsecureSkipVerify = c.TLS.InsecureSkipVerify
+	}
+
+	// create a reusable client
+	client, err = api.NewClient(consulCfg)
+	if err != nil {
+		return nil, "", err
+	}
+
+	var self map[string]map[string]interface{}
+	self, err = client.Agent().Self()
+	if err != nil {
+		return nil, "", err
+	}
+	var ok bool
+	var cfg map[string]interface{}
+	cfg, ok = self["Config"]
+	if !ok {
+		return nil, "", errors.New("consul: self.Config not found")
+	}
+	dc, ok = cfg["Datacenter"].(string)
+	if !ok {
+		return nil, "", errors.New("consul: self.Datacenter not found")
+	}
+
+	return client, dc, nil
 }
 
 type Custom struct {

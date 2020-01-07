@@ -1,7 +1,6 @@
 package consul
 
 import (
-	"errors"
 	"log"
 
 	"github.com/fabiolb/fabio/config"
@@ -20,23 +19,8 @@ type be struct {
 
 func NewBackend(cfg *config.Consul) (registry.Backend, error) {
 
-	consulCfg := &api.Config{Address: cfg.Addr, Scheme: cfg.Scheme, Token: cfg.Token}
-	if cfg.Scheme == "https" {
-		consulCfg.TLSConfig.KeyFile = cfg.TLS.KeyFile
-		consulCfg.TLSConfig.CertFile = cfg.TLS.CertFile
-		consulCfg.TLSConfig.CAFile = cfg.TLS.CAFile
-		consulCfg.TLSConfig.CAPath = cfg.TLS.CAPath
-		consulCfg.TLSConfig.InsecureSkipVerify = cfg.TLS.InsecureSkipVerify
-	}
-
 	// create a reusable client
-	c, err := api.NewClient(consulCfg)
-	if err != nil {
-		return nil, err
-	}
-
-	// ping the agent
-	dc, err := datacenter(c)
+	c, dc, err := cfg.NewClient()
 	if err != nil {
 		return nil, err
 	}
@@ -154,24 +138,6 @@ func (b *be) WatchNoRouteHTML() chan string {
 	html := make(chan string)
 	go watchKV(b.c, b.cfg.NoRouteHTMLPath, html, false)
 	return html
-}
-
-// datacenter returns the datacenter of the local agent
-func datacenter(c *api.Client) (string, error) {
-	self, err := c.Agent().Self()
-	if err != nil {
-		return "", err
-	}
-
-	cfg, ok := self["Config"]
-	if !ok {
-		return "", errors.New("consul: self.Config not found")
-	}
-	dc, ok := cfg["Datacenter"].(string)
-	if !ok {
-		return "", errors.New("consul: self.Datacenter not found")
-	}
-	return dc, nil
 }
 
 func stringInSlice(str string, strSlice []string) bool {

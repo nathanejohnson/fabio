@@ -32,46 +32,48 @@ type Issuer interface {
 
 // NewSource generates a cert source from the config options.
 func NewSource(cfg config.CertSource) (Source, error) {
+	var s Source
 	switch cfg.Type {
 	case "file":
-		return FileSource{
+		s = FileSource{
 			CertFile:       cfg.CertPath,
 			KeyFile:        cfg.KeyPath,
 			ClientAuthFile: cfg.ClientCAPath,
 			CAUpgradeCN:    cfg.CAUpgradeCN,
-		}, nil
+		}
 
 	case "path":
-		return PathSource{
+		s = PathSource{
 			CertPath:     cfg.CertPath,
 			ClientCAPath: cfg.ClientCAPath,
 			CAUpgradeCN:  cfg.CAUpgradeCN,
 			Refresh:      cfg.Refresh,
-		}, nil
+		}
 
 	case "http":
-		return HTTPSource{
+		s = HTTPSource{
 			CertURL:     cfg.CertPath,
 			ClientCAURL: cfg.ClientCAPath,
 			CAUpgradeCN: cfg.CAUpgradeCN,
 			Refresh:     cfg.Refresh,
-		}, nil
+		}
 
 	case "consul":
-		return ConsulSource{
+		s = ConsulSource{
 			CertURL:     cfg.CertPath,
 			ClientCAURL: cfg.ClientCAPath,
 			CAUpgradeCN: cfg.CAUpgradeCN,
-		}, nil
+		}
 
 	case "vault":
-		return &VaultSource{
+		s = &VaultSource{
 			CertPath:     cfg.CertPath,
 			ClientCAPath: cfg.ClientCAPath,
 			CAUpgradeCN:  cfg.CAUpgradeCN,
 			Refresh:      cfg.Refresh,
 			Client:       NewVaultClient(cfg.VaultFetchToken),
-		}, nil
+		}
+
 	case "vault-pki":
 		src := NewVaultPKISource()
 		src.CertPath = cfg.CertPath
@@ -79,11 +81,45 @@ func NewSource(cfg config.CertSource) (Source, error) {
 		src.CAUpgradeCN = cfg.CAUpgradeCN
 		src.Refresh = cfg.Refresh
 		src.Client = NewVaultClient(cfg.VaultFetchToken)
-		return src, nil
+		s = src
 
 	default:
 		return nil, fmt.Errorf("invalid certificate source %q", cfg.Type)
 	}
+
+	if cfg.OCSPStapling {
+		var oc OCSPCacher
+		of := NewOCSPFetch(nil)
+		switch cfg.OCSPCacheType {
+		case "mem", "":
+			oc = &OCSPCacheInMem{
+				of: of,
+			}
+
+		case "disk":
+			oc = &OCSPCacheInMem{
+				of:           of,
+				storeResults: true,
+				storePath:    cfg.OCSPCachePath,
+			}
+
+		case "consul":
+			oc = &OCSPCacheConsul{
+				CachePrefixURL: cfg.OCSPCachePath,
+				of:             of,
+			}
+
+		default:
+			return nil, fmt.Errorf("invalid OCSP Cache Type: %s", cfg.OCSPCacheType)
+		}
+
+		s = &StapleSource{
+			src: s,
+			oc:  oc,
+		}
+
+	}
+	return s, nil
 }
 
 // TLSConfig creates a tls.Config which sets the GetCertificate field to a
@@ -118,7 +154,6 @@ func TLSConfig(src Source, strictMatch bool, minVersion, maxVersion uint16, ciph
 				// an unrecoverable error
 				return
 			}
-
 			ca, ok := src.(Issuer)
 			if !ok {
 				return
