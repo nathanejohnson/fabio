@@ -88,7 +88,7 @@ func (rs *ocspFetch) Renew(cert, issuer *x509.Certificate, options *ocsp.Request
 
 var ErrMissingIssuer = errors.New("missing issuer, cannot create OCSP request")
 
-func (rs *ocspFetch) RenewTLS(cert *tls.Certificate) (resp *ocsp.Response, issuer *x509.Certificate, err error) {
+func (rs *ocspFetch) RenewTLS(cert *tls.Certificate) (resp []byte, issuer *x509.Certificate, err error) {
 	if len(cert.Certificate) < 2 {
 		err = ErrMissingIssuer
 		return
@@ -97,7 +97,7 @@ func (rs *ocspFetch) RenewTLS(cert *tls.Certificate) (resp *ocsp.Response, issue
 	crt, err = x509.ParseCertificate(cert.Certificate[0])
 	if err != nil {
 		err = fmt.Errorf("cert: renewtls: error parsing leaf certificate %w", err)
-		return
+		return nil, nil, err
 	}
 
 	issuer, err = x509.ParseCertificate(cert.Certificate[1])
@@ -111,13 +111,14 @@ func (rs *ocspFetch) RenewTLS(cert *tls.Certificate) (resp *ocsp.Response, issue
 	raw, err = rs.Renew(crt, issuer, nil)
 	if err != nil {
 		err = fmt.Errorf("cert: renewtls: error renewing OCSP: %w", err)
-		return
+		return nil, nil, err
 	}
-	resp, err = ocsp.ParseResponse(raw, issuer)
+	_, err = ocsp.ParseResponse(raw, issuer)
 	if err != nil {
 		err = fmt.Errorf("cert: renewtls: error parsing ocsp response: %w", err)
+		return nil, nil, err
 	}
-	return
+	return raw, issuer, nil
 }
 
 func halfLife(o *ocsp.Response) time.Duration {

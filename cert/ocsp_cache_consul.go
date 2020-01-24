@@ -12,7 +12,7 @@ import (
 )
 
 type cacheEntry struct {
-	or  *ocsp.Response
+	or  []byte
 	idx uint64
 }
 
@@ -30,7 +30,7 @@ func (c cacheEntryMap) keys() []string {
 	return r
 }
 
-func (c cacheEntryMap) fetch(key string) (*ocsp.Response, bool) {
+func (c cacheEntryMap) fetch(key string) ([]byte, bool) {
 	v, ok := c[key]
 	if v == nil {
 		return nil, ok
@@ -38,7 +38,7 @@ func (c cacheEntryMap) fetch(key string) (*ocsp.Response, bool) {
 	return v.or, ok
 }
 
-func (c cacheEntryMap) set(key string, val *ocsp.Response) {
+func (c cacheEntryMap) set(key string, val []byte) {
 	or, ok := c[key]
 	if !ok {
 		or = &cacheEntry{
@@ -146,7 +146,8 @@ func (occ *OCSPCacheConsul) updateConsul() {
 	}
 
 	for k, v := range occ.ocspCache {
-		if v.or.NextUpdate.Before(time.Now()) {
+		oresp, err := ocsp.ParseResponse(v.or, nil)
+		if err != nil || oresp.NextUpdate.Before(time.Now()) {
 			delete(occ.ocspCache, k)
 			_, _, err := occ.client.KV().DeleteCAS(&api.KVPair{
 				Key:         k,
@@ -162,7 +163,7 @@ func (occ *OCSPCacheConsul) updateConsul() {
 			_, _, err := occ.client.KV().CAS(&api.KVPair{
 				Key:         k,
 				ModifyIndex: v.idx,
-				Value:       v.or.TBSResponseData,
+				Value:       oresp.TBSResponseData,
 			}, nil)
 			if err != nil {
 				log.Printf("[WARN] cert: ocsp error updating consul: %s", err)
@@ -213,13 +214,13 @@ func getOCSPs(client *api.Client, key string, waitIndex uint64) (ocspCache map[s
 		return ocspCache, meta.LastIndex, nil
 	}
 	for _, kvpair := range kvpairs {
-		oresp, err := ocsp.ParseResponse(kvpair.Value, nil)
+		_, err := ocsp.ParseResponse(kvpair.Value, nil)
 		if err != nil {
 			log.Printf("[WARN] cert: invalid ocsp cache entry for %s", kvpair.Key)
 			continue
 		}
 		ocspCache[kvpair.Key] = &cacheEntry{
-			or:  oresp,
+			or:  kvpair.Value,
 			idx: kvpair.ModifyIndex,
 		}
 	}

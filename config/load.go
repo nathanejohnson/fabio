@@ -578,6 +578,15 @@ func parseCertSource(cfg map[string]string) (c CertSource, err error) {
 			c.ClientCAPath = v
 		case "caupgcn":
 			c.CAUpgradeCN = v
+		case "ocspstp":
+			c.OCSPStapling, err = strconv.ParseBool(v)
+			if err != nil {
+				return CertSource{}, err
+			}
+		case "ocspcache":
+			c.OCSPCacheType = v
+		case "ocsppath":
+			c.OCSPCachePath = v
 		case "refresh":
 			d, err := time.ParseDuration(v)
 			if err != nil {

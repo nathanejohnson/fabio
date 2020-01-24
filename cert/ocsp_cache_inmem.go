@@ -5,19 +5,17 @@ import (
 	"encoding/json"
 	"io/ioutil"
 	"log"
-
-	"golang.org/x/crypto/ocsp"
 )
 
 // Implement cacheAccessor - not thread safe
-type simpleMap map[string]*ocsp.Response
+type simpleMap map[string][]byte
 
-func (s simpleMap) fetch(key string) (*ocsp.Response, bool) {
+func (s simpleMap) fetch(key string) ([]byte, bool) {
 	val, ok := s[key]
 	return val, ok
 }
 
-func (s simpleMap) set(key string, val *ocsp.Response) {
+func (s simpleMap) set(key string, val []byte) {
 	s[key] = val
 }
 
@@ -48,7 +46,7 @@ func (ocim *OCSPCacheInMem) Init(in <-chan []tls.Certificate) chan []tls.Certifi
 	ch := make(chan []tls.Certificate)
 	ocim.sig = make(chan struct{})
 	ocim.errCh = make(chan error)
-	ocim.ocspMap = make(map[string]*ocsp.Response)
+	ocim.ocspMap = make(map[string][]byte)
 	if ocim.storeResults {
 		err := ocim.LoadFromDisk()
 		if err != nil {

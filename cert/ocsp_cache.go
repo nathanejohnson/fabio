@@ -50,8 +50,8 @@ func certKey(cert *tls.Certificate) (string, error) {
 }
 
 type cacheAccessor interface {
-	fetch(key string) (*ocsp.Response, bool)
-	set(key string, val *ocsp.Response)
+	fetch(key string) ([]byte, bool)
+	set(key string, val []byte)
 	delete(key string)
 	keys() []string
 }
@@ -63,15 +63,20 @@ func evalCert(crt *tls.Certificate, ca cacheAccessor, of *ocspFetch) (renewed bo
 		return false, err
 	}
 	renew := true
-	if or, ok := ca.fetch(key); ok {
-		renew = needsRenewal(or)
+	if oraw, ok := ca.fetch(key); ok {
+		oresp, err := ocsp.ParseResponse(oraw, nil)
+		if err != nil {
+			renew = true
+		} else {
+			renew = needsRenewal(oresp)
+		}
 	}
 	if renew {
 		o, _, err := of.RenewTLS(crt)
 		if err != nil {
 			return false, err
 		}
-		crt.OCSPStaple = o.TBSResponseData
+		crt.OCSPStaple = o
 		ca.set(key, o)
 		return true, nil
 	}
@@ -91,7 +96,13 @@ func evict(ca cacheAccessor, certs []tls.Certificate) bool {
 	var deletes []string
 	for _, k := range ca.keys() {
 		v, _ := ca.fetch(k)
-		if !valids[k] || time.Now().After(v.NextUpdate) {
+		oresp, err := ocsp.ParseResponse(v, nil)
+		if err != nil {
+			deletes = append(deletes, k)
+			continue
+		}
+
+		if !valids[k] || time.Now().After(oresp.NextUpdate) {
 			deletes = append(deletes, k)
 		}
 	}
